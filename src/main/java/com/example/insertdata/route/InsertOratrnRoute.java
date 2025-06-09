@@ -7,6 +7,7 @@ import org.springframework.stereotype.Component;
 
 import javax.sql.DataSource;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 
@@ -57,7 +58,9 @@ public class InsertOratrnRoute extends RouteBuilder {
                     List<Map<String, Object>> records = exchange.getIn().getBody(List.class);
 
                     if (records == null || records.isEmpty()) {
-                        throw new IllegalArgumentException("No ORATRN records to process");
+                        log.warn("No ORATRN records found to process");
+                        exchange.getIn().setBody(Collections.emptyList());
+                        return;
                     }
 
                     String sql = "INSERT INTO ORATRN (ITFFIL, ITFLAG, ITHCOD, ITRLTP, ITRLOC, ITRCEN, ITRDAT, ITRTYP, INUMBR, ITRQTY, ITRRET, ITRCST, IDEPT, ITRREF, LGUSER, ITCOMP, ITRSDT, ITRSTM) " +

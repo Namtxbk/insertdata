@@ -7,6 +7,7 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Component;
 
 import javax.sql.DataSource;
+import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 import java.util.ArrayList;
@@ -80,7 +81,11 @@ public class InsertOraaphRoute extends RouteBuilder {
                     List<Map<String, Object>> invoices = exchange.getIn().getBody(List.class);
 
                     if (invoices == null || invoices.isEmpty()) {
-                        throw new IllegalArgumentException("No invoices to process");
+//                        throw new IllegalArgumentException("No invoices to process");
+
+                        log.warn("No Oraaph records found to process");
+                        exchange.getIn().setBody(Collections.emptyList());
+                        return;
                     }
 
                     String sql = "INSERT INTO ORAAPH (ITFFIL, ITFPFN, ITFMBR, ITFINV, ITFCRD, ITFDTE, ITFVNO, ITFCMP, ITFAMT, ITFTRM, ITFDSC, ITFRDT, ITFIDT, ITFGDT, ITFREB, ITFBCH, ITFSTR, ITFCUR, ITFXRT, ITFMDV) " +

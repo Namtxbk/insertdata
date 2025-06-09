@@ -9,6 +9,7 @@ import org.springframework.stereotype.Component;
 
 import javax.sql.DataSource;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 
@@ -73,7 +74,10 @@ public class InsertOraarriRoute extends RouteBuilder {
                     List<Map<String, Object>> records = exchange.getIn().getBody(List.class);
 
                     if (records == null || records.isEmpty()) {
-                        throw new IllegalArgumentException("No ORAARRI records to process");
+//                        throw new IllegalArgumentException("No ORAARRI records to process");
+                        log.warn("No ORAARRI records found to process");
+                        exchange.getIn().setBody(Collections.emptyList());
+                        return;
                     }
 
                     String sql = "INSERT INTO ORAARRI (ITFFIL, ITFTRN, ITFAMT, ITFDTE, ITFTYP, ITFCUS, ITFMDT, ITFSEQ, ITFGCO, ITFDOC, ITFSTR, ITFTIL) " +

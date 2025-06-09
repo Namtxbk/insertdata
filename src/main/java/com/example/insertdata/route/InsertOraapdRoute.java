@@ -8,6 +8,7 @@ import org.springframework.stereotype.Component;
 
 import javax.sql.DataSource;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 
@@ -72,7 +73,10 @@ public class InsertOraapdRoute extends RouteBuilder {
                     List<Map<String, Object>> records = exchange.getIn().getBody(List.class);
 
                     if (records == null || records.isEmpty()) {
-                        throw new IllegalArgumentException("No ORAAPD records to process");
+//                        throw new IllegalArgumentException("No  records to process");
+                        log.warn("No ORAAPD records found to process");
+                        exchange.getIn().setBody(Collections.emptyList());
+                        return;
                     }
 
                     String sql = "INSERT INTO ORAAPD (ITFFIL, ITFPFN, ITFMBR, ITFINV, ITFVNO, ITFSEQ, ITFDMT, ITFADT, ITFDST, ITFRCR, ITFPOB, ITFBCH, ITFSTR, ITFCCD, ITFCSQ) " +

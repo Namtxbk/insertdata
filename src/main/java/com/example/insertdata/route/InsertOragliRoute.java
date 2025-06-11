@@ -1,6 +1,6 @@
 package com.example.insertdata.route;
 
-
+import com.example.insertdata.ultis.LogUtility;
 import org.apache.camel.Exchange;
 import org.apache.camel.builder.RouteBuilder;
 import org.apache.camel.model.rest.RestBindingMode;
@@ -9,7 +9,6 @@ import org.springframework.stereotype.Component;
 
 import javax.sql.DataSource;
 import java.util.ArrayList;
-import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 
@@ -18,10 +17,18 @@ public class InsertOragliRoute extends RouteBuilder {
 
     private final DataSource dataSource;
     private final JdbcTemplate jdbcTemplate;
+    private final LogUtility logUtility;
 
-    public InsertOragliRoute(DataSource dataSource) {
+    private final String mmsUser = "SYSTERM";
+    private final String mmsJob = "ITF001JQ";
+    private final String mmsProgram = "ITF99Z";
+    private final String mmsMember = "R0056882";
+    private final String mmsTableCode = "ORAGLI";
+
+    public InsertOragliRoute(DataSource dataSource, LogUtility logUtility) {
         this.dataSource = dataSource;
         this.jdbcTemplate = new JdbcTemplate(dataSource);
+        this.logUtility = logUtility;
     }
 
     private Object convertToNumber(Object value) {
@@ -36,6 +43,7 @@ public class InsertOragliRoute extends RouteBuilder {
                     return Long.parseLong(str);
                 }
             } catch (NumberFormatException e) {
+                log.warn("Invalid number format for value: {}", str);
                 return null;
             }
         }
@@ -44,10 +52,9 @@ public class InsertOragliRoute extends RouteBuilder {
 
     @Override
     public void configure() throws Exception {
-
         onException(Exception.class)
                 .handled(true)
-                .log("Error occurred: ${exception.stacktrace}")
+                .log("Error occurred: ${exception.message}")
                 .setHeader(Exchange.HTTP_RESPONSE_CODE, constant(500))
                 .setBody(simple("{\"error\":\"${exception.message}\"}"))
                 .rollback();
@@ -67,58 +74,59 @@ public class InsertOragliRoute extends RouteBuilder {
 
         from("direct:processOragli")
                 .routeId("oragli-insert-route")
-                .transacted("PROPAGATION_REQUIRED")
-                .log("Received ORAGLI batch: ${body}")
+                .transacted("PROPAGATION_REQUIRED")   .process(exchange -> {
+                    @SuppressWarnings("unchecked")
+                    List<Map<String, Object>> records = exchange.getIn().getBody(List.class);
+                    logUtility.logStart(exchange, records, mmsUser, mmsJob, mmsProgram, mmsMember, mmsTableCode);
+                })
+                .choice()
+                .when(simple("${body} contains 'skipped'"))
+                .stop()
+                .end()
 
+                .log("Received ORAGLI batch: ${body}")
                 .process(exchange -> {
                     @SuppressWarnings("unchecked")
                     List<Map<String, Object>> records = exchange.getIn().getBody(List.class);
 
-                    if (records == null || records.isEmpty()) {
-//                        throw new IllegalArgumentException("No ORAGLI records to process");
-                        log.warn("No ORAGLI records found to process");
-                        exchange.getIn().setBody(Collections.emptyList());
-                        return;
-                    }
-
                     String sql = "INSERT INTO ORAGLI (ITFFIL, ITFBCH, ITFDSC, ITFJRN, ITFJRD, ITFACD, ITFCTN, ITFGLC, ITFGLM, ITFDEP, ITFSTR, ITFAMT, ITFJEN, ITFJLD, ITFREF) " +
                             "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)";
-
                     List<Object[]> batchParams = new ArrayList<>();
 
                     for (Map<String, Object> rec : records) {
                         Object[] params = new Object[]{
-                                rec.get("ITFFIL"),                     // CHAR(45)
-                                rec.get("ITFBCH"),                     // CHAR(24)
-                                rec.get("ITFDSC"),                     // CHAR(90)
-                                rec.get("ITFJRN"),                     // CHAR(24)
-                                rec.get("ITFJRD"),                     // CHAR(90)
-                                convertToNumber(rec.get("ITFACD")),   // NUMBER(6)
-                                rec.get("ITFCTN"),                     // CHAR(12)
-                                convertToNumber(rec.get("ITFGLC")),   // NUMBER(3)
-                                convertToNumber(rec.get("ITFGLM")),   // NUMBER(3)
-                                convertToNumber(rec.get("ITFDEP")),   // NUMBER(3)
-                                convertToNumber(rec.get("ITFSTR")),   // NUMBER(5)
-                                rec.get("ITFAMT"),                     // CHAR(51)
-                                convertToNumber(rec.get("ITFJEN")),   // NUMBER(5)
-                                rec.get("ITFJLD"),                     // CHAR(90)
-                                rec.get("ITFREF")                      // CHAR(36)
+                                rec.get("ITFFIL"),
+                                rec.get("ITFBCH"),
+                                rec.get("ITFDSC"),
+                                rec.get("ITFJRN"),
+                                rec.get("ITFJRD"),
+                                convertToNumber(rec.get("ITFACD")),
+                                rec.get("ITFCTN"),
+                                convertToNumber(rec.get("ITFGLC")),
+                                convertToNumber(rec.get("ITFGLM")),
+                                convertToNumber(rec.get("ITFDEP")),
+                                convertToNumber(rec.get("ITFSTR")),
+                                rec.get("ITFAMT"),
+                                convertToNumber(rec.get("ITFJEN")),
+                                rec.get("ITFJLD"),
+                                rec.get("ITFREF")
                         };
                         batchParams.add(params);
                     }
 
                     int[] results = jdbcTemplate.batchUpdate(sql, batchParams);
                     log.info("Inserted {} ORAGLI records successfully", results.length);
+                    //                    logUtility.logComplete(exchange);
 
+
+                    
                     exchange.getIn().setHeader("TotalInserted", results.length);
                 })
-
                 .process(exchange -> {
                     Integer total = exchange.getIn().getHeader("TotalInserted", Integer.class);
                     String response = String.format("{\"status\":\"success\",\"message\":\"Inserted %d ORAGLI records\"}", total);
                     exchange.getIn().setBody(response);
                 })
-
                 .log("Finished ORAGLI batch insert");
     }
 }

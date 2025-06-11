@@ -1,5 +1,6 @@
 package com.example.insertdata.route;
 
+import com.example.insertdata.ultis.LogUtility;
 import org.apache.camel.Exchange;
 import org.apache.camel.builder.RouteBuilder;
 import org.springframework.jdbc.core.JdbcTemplate;
@@ -14,10 +15,21 @@ import java.util.Map;
 @Component
 public class InsertOratrnRoute extends RouteBuilder {
 
+    private final DataSource dataSource;
+
     private final JdbcTemplate jdbcTemplate;
 
-    public InsertOratrnRoute(DataSource dataSource) {
+    private final LogUtility logUtility;
+
+    private final String mmsUser = "SYSTERM";
+    private final String mmsJob = "ITF001JQ";
+    private final String mmsProgram = "";
+    private final String mmsMember = "";
+    private final String mmsTableCode = "ORATRN";
+    public InsertOratrnRoute(DataSource dataSource, LogUtility logUtility) {
+        this.dataSource = dataSource;
         this.jdbcTemplate = new JdbcTemplate(dataSource);
+        this.logUtility = logUtility;
     }
 
     private Object convertToNumber(Object value) {
@@ -51,6 +63,15 @@ public class InsertOratrnRoute extends RouteBuilder {
         from("direct:processOratrn")
                 .routeId("oratrn-insert-route")
                 .transacted("PROPAGATION_REQUIRED")
+                .process(exchange -> {
+                    @SuppressWarnings("unchecked")
+                    List<Map<String, Object>> records = exchange.getIn().getBody(List.class);
+                    logUtility.logStart(exchange, records, mmsUser, mmsJob, mmsProgram, mmsMember, mmsTableCode);
+                })
+                .choice()
+                .when(simple("${body} contains 'skipped'"))
+                .stop()
+                .end()
                 .log("Received ORATRN batch: ${body}")
 
                 .process(exchange -> {
@@ -94,6 +115,8 @@ public class InsertOratrnRoute extends RouteBuilder {
 
                     int[] results = jdbcTemplate.batchUpdate(sql, batchParams);
                     exchange.getIn().setHeader("TotalInserted", results.length);
+                    //                    logUtility.logComplete(exchange);
+
                 })
 
                 .process(exchange -> {

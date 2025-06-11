@@ -1,5 +1,6 @@
 package com.example.insertdata.route;
 
+import com.example.insertdata.ultis.LogUtility;
 import org.apache.camel.Exchange;
 import org.apache.camel.builder.RouteBuilder;
 import org.apache.camel.model.rest.RestBindingMode;
@@ -8,7 +9,6 @@ import org.springframework.stereotype.Component;
 
 import javax.sql.DataSource;
 import java.util.ArrayList;
-import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 
@@ -17,10 +17,18 @@ public class InsertOraapdRoute extends RouteBuilder {
 
     private final DataSource dataSource;
     private final JdbcTemplate jdbcTemplate;
+    private final LogUtility logUtility;
 
-    public InsertOraapdRoute(DataSource dataSource) {
+    private final String mmsUser = "SYSTERM";
+    private final String mmsJob = "ITF001JQ";
+    private final String mmsProgram = "";
+    private final String mmsMember = "";
+    private final String mmsTableCode = "ORAAPD";
+
+    public InsertOraapdRoute(DataSource dataSource, LogUtility logUtility) {
         this.dataSource = dataSource;
         this.jdbcTemplate = new JdbcTemplate(dataSource);
+        this.logUtility = logUtility;
     }
 
     private Object convertToNumber(Object value) {
@@ -35,6 +43,7 @@ public class InsertOraapdRoute extends RouteBuilder {
                     return Long.parseLong(str);
                 }
             } catch (NumberFormatException e) {
+                log.warn("Invalid number format for value: {}", str);
                 return null;
             }
         }
@@ -45,7 +54,7 @@ public class InsertOraapdRoute extends RouteBuilder {
     public void configure() throws Exception {
         onException(Exception.class)
                 .handled(true)
-                .log("Error in ORAAPD batch insert: ${exception.stacktrace}")
+                .log("Error in ORAAPD batch insert: ${exception.message}")
                 .setHeader(Exchange.HTTP_RESPONSE_CODE, constant(500))
                 .setBody(simple("{\"error\":\"${exception.message}\"}"))
                 .rollback();
@@ -66,41 +75,41 @@ public class InsertOraapdRoute extends RouteBuilder {
         from("direct:processOraapd")
                 .routeId("oraapd-insert-route")
                 .transacted("PROPAGATION_REQUIRED")
+                .process(exchange -> {
+                    @SuppressWarnings("unchecked")
+                    List<Map<String, Object>> records = exchange.getIn().getBody(List.class);
+                    logUtility.logStart(exchange, records, mmsUser, mmsJob, mmsProgram, mmsMember, mmsTableCode);
+                })
+                .choice()
+                .when(simple("${body} contains 'skipped'"))
+                .stop()
+                .end()
                 .log("Received ORAAPD batch: ${body}")
-
                 .process(exchange -> {
                     @SuppressWarnings("unchecked")
                     List<Map<String, Object>> records = exchange.getIn().getBody(List.class);
 
-                    if (records == null || records.isEmpty()) {
-//                        throw new IllegalArgumentException("No  records to process");
-                        log.warn("No ORAAPD records found to process");
-                        exchange.getIn().setBody(Collections.emptyList());
-                        return;
-                    }
-
                     String sql = "INSERT INTO ORAAPD (ITFFIL, ITFPFN, ITFMBR, ITFINV, ITFVNO, ITFSEQ, ITFDMT, ITFADT, ITFDST, ITFRCR, ITFPOB, ITFBCH, ITFSTR, ITFCCD, ITFCSQ) " +
                             "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)";
-
                     List<Object[]> batchParams = new ArrayList<>();
 
                     for (Map<String, Object> rec : records) {
                         Object[] params = new Object[]{
-                                rec.get("ITFFIL"),                     // CHAR(45)
-                                rec.get("ITFPFN"),                     // CHAR(30)
-                                rec.get("ITFMBR"),                     // CHAR(30)
-                                rec.get("ITFINV"),                     // CHAR(60)
-                                convertToNumber(rec.get("ITFVNO")),   // NUMBER(6)
-                                convertToNumber(rec.get("ITFSEQ")),   // NUMBER(5)
-                                rec.get("ITFDMT"),                     // CHAR(51)
-                                convertToNumber(rec.get("ITFADT")),   // NUMBER(6)
-                                rec.get("ITFDST"),                     // CHAR(42)
-                                convertToNumber(rec.get("ITFRCR")),   // NUMBER(10)
-                                convertToNumber(rec.get("ITFPOB")),   // NUMBER(12)
-                                rec.get("ITFBCH"),                     // CHAR(24)
-                                convertToNumber(rec.get("ITFSTR")),   // NUMBER(5)
-                                rec.get("ITFCCD"),                     // CHAR(6)
-                                convertToNumber(rec.get("ITFCSQ"))    // NUMBER(3)
+                                rec.get("ITFFIL"),
+                                rec.get("ITFPFN"),
+                                rec.get("ITFMBR"),
+                                rec.get("ITFINV"),
+                                convertToNumber(rec.get("ITFVNO")),
+                                convertToNumber(rec.get("ITFSEQ")),
+                                rec.get("ITFDMT"),
+                                convertToNumber(rec.get("ITFADT")),
+                                rec.get("ITFDST"),
+                                convertToNumber(rec.get("ITFRCR")),
+                                convertToNumber(rec.get("ITFPOB")),
+                                rec.get("ITFBCH"),
+                                convertToNumber(rec.get("ITFSTR")),
+                                rec.get("ITFCCD"),
+                                convertToNumber(rec.get("ITFCSQ"))
                         };
                         batchParams.add(params);
                     }
@@ -108,15 +117,16 @@ public class InsertOraapdRoute extends RouteBuilder {
                     int[] results = jdbcTemplate.batchUpdate(sql, batchParams);
                     log.info("Inserted {} ORAAPD records successfully", results.length);
 
+                    //                    logUtility.logComplete(exchange);
+
+
                     exchange.getIn().setHeader("TotalInserted", results.length);
                 })
-
                 .process(exchange -> {
                     Integer total = exchange.getIn().getHeader("TotalInserted", Integer.class);
                     String response = String.format("{\"status\":\"success\",\"message\":\"Inserted %d ORAAPD records\"}", total);
                     exchange.getIn().setBody(response);
                 })
-
                 .log("Finished ORAAPD batch insert");
     }
 }

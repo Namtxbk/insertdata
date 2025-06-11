@@ -1,6 +1,7 @@
 package com.example.insertdata.route;
 
 
+import com.example.insertdata.ultis.LogUtility;
 import org.apache.camel.Exchange;
 import org.apache.camel.builder.RouteBuilder;
 import org.apache.camel.model.rest.RestBindingMode;
@@ -18,10 +19,18 @@ public class InsertOraarriRoute extends RouteBuilder {
 
     private final DataSource dataSource;
     private final JdbcTemplate jdbcTemplate;
+    private final LogUtility logUtility ;
 
-    public InsertOraarriRoute(DataSource dataSource) {
+    private final String mmsUser = "SYSTERM";
+    private final String mmsJob = "ITF030JQ";
+    private final String mmsProgram = "";
+    private final String mmsMember = "";
+    private final String mmsTableCode = "ORAARRI";
+
+    public InsertOraarriRoute(DataSource dataSource,  LogUtility logUtility) {
         this.dataSource = dataSource;
         this.jdbcTemplate = new JdbcTemplate(dataSource);
+        this.logUtility = logUtility;
     }
 
     private Object convertToNumber(Object value) {
@@ -67,6 +76,15 @@ public class InsertOraarriRoute extends RouteBuilder {
         from("direct:processOraarri")
                 .routeId("oraarri-insert-route")
                 .transacted("PROPAGATION_REQUIRED")
+                .process(exchange -> {
+                    @SuppressWarnings("unchecked")
+                    List<Map<String, Object>> records = exchange.getIn().getBody(List.class);
+                    logUtility.logStart(exchange, records, mmsUser, mmsJob, mmsProgram, mmsMember, mmsTableCode);
+                })
+                .choice()
+                .when(simple("${body} contains 'skipped'"))
+                .stop()
+                .end()
                 .log("Received ORAARRI batch: ${body}")
 
                 .process(exchange -> {
@@ -105,6 +123,7 @@ public class InsertOraarriRoute extends RouteBuilder {
 
                     int[] results = jdbcTemplate.batchUpdate(sql, batchParams);
                     log.info("Inserted {} ORAARRI records successfully", results.length);
+                    //                    logUtility.logComplete(exchange);
 
                     exchange.getIn().setHeader("TotalInserted", results.length);
                 })

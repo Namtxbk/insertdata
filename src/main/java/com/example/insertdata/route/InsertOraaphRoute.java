@@ -1,10 +1,12 @@
 package com.example.insertdata.route;
 
+import com.example.insertdata.ultis.LogUtility;
 import org.apache.camel.Exchange;
 import org.apache.camel.builder.RouteBuilder;
 import org.apache.camel.model.rest.RestBindingMode;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Component;
+import com.example.insertdata.ultis.LogUtility;
 
 import javax.sql.DataSource;
 import java.util.Collections;
@@ -17,10 +19,18 @@ public class InsertOraaphRoute extends RouteBuilder {
 
     private final DataSource dataSource;
     private final JdbcTemplate jdbcTemplate;
+    private final LogUtility logUtility ;
 
-    public InsertOraaphRoute(DataSource dataSource) {
+    private final String mmsUser = "SYSTERM";
+    private final String mmsJob = "ITF010JQ";
+    private final String mmsProgram = "";
+    private final String mmsMember = "";
+    private final String mmsTableCode = "ORAAPH";
+
+    public InsertOraaphRoute(DataSource dataSource, LogUtility logUtility) {
         this.dataSource = dataSource;
         this.jdbcTemplate = new JdbcTemplate(dataSource);
+        this.logUtility = logUtility;
     }
 
     private Object convertToNumber(Object value) {
@@ -75,14 +85,20 @@ public class InsertOraaphRoute extends RouteBuilder {
                 .log("Received request: ${body}")
                 .routeId("invoice-processing-route")
                 .transacted("PROPAGATION_REQUIRED")
-
+                .process(exchange -> {
+                    @SuppressWarnings("unchecked")
+                    List<Map<String, Object>> records = exchange.getIn().getBody(List.class);
+                    logUtility.logStart(exchange, records, mmsUser, mmsJob, mmsProgram, mmsMember, mmsTableCode);
+                })
+                .choice()
+                .when(simple("${body} contains 'skipped'"))
+                .stop()
+                .end()
                 .process(exchange -> {
                     @SuppressWarnings("unchecked")
                     List<Map<String, Object>> invoices = exchange.getIn().getBody(List.class);
 
                     if (invoices == null || invoices.isEmpty()) {
-//                        throw new IllegalArgumentException("No invoices to process");
-
                         log.warn("No Oraaph records found to process");
                         exchange.getIn().setBody(Collections.emptyList());
                         return;
@@ -123,15 +139,15 @@ public class InsertOraaphRoute extends RouteBuilder {
                     int[] results = jdbcTemplate.batchUpdate(sql, batchParams);
 
                     log.info("Batch insert completed. Inserted {} records", results.length);
-                    exchange.getIn().setHeader("TotalInvoices", results.length);
+                    //                    logUtility.logComplete(exchange);
+
+
+                    exchange.getIn().setHeader("ORAAPH", results.length);
                 })
 
                 .process(exchange -> {
-                    Integer totalInvoices = exchange.getIn().getHeader("TotalInvoices", Integer.class);
-                    String response = String.format(
-                            "{\"status\":\"success\", \"message\":\"Successfully processed %d invoices\"}",
-                            totalInvoices
-                    );
+                    Integer total = exchange.getIn().getHeader("TotalInvoices", Integer.class);
+                    String response = String.format("{\"status\":\"success\",\"message\":\"Inserted %d ORAAPH records\"}", total);
                     exchange.getIn().setBody(response);
                 })
                 .log("Batch processing completed successfully");
